@@ -1,0 +1,107 @@
+{
+  "Comment": "Upstream IncidentFlow: locate -> agent (waits for the engineer) -> SNS alerts only if approved",
+  "StartAt": "Locate",
+  "States": {
+    "Locate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LocateFunctionArn}",
+        "Payload": { "incident_id.$": "$.incident_id" }
+      },
+      "ResultSelector": { "result.$": "$.Payload" },
+      "ResultPath": "$.locate",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2 }
+      ],
+      "Next": "AgentAwaitApproval"
+    },
+    "AgentAwaitApproval": {
+      "Comment": "The agent Lambda stores the task token on the incident; the dashboard's Approve/Reject returns it.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${AgentFunctionArn}",
+        "Payload": { "incident_id.$": "$.incident_id", "task_token.$": "$$.Task.Token" }
+      },
+      "TimeoutSeconds": 21600,
+      "ResultPath": "$.decision",
+      "Retry": [
+        { "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2, "MaxAttempts": 2, "BackoffRate": 2 }
+      ],
+      "Catch": [
+        { "ErrorEquals": ["States.Timeout"], "ResultPath": "$.error", "Next": "Expire" }
+      ],
+      "Next": "Approved?"
+    },
+    "Approved?": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.decision.approved", "BooleanEquals": true, "Next": "PrepareAlerts" }
+      ],
+      "Default": "Rejected"
+    },
+    "Rejected": { "Type": "Succeed", "Comment": "Engineer rejected the plan: nothing is sent." },
+    "PrepareAlerts": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${StatusFunctionArn}",
+        "Payload": { "incident_id.$": "$.incident_id", "action": "prepare" }
+      },
+      "ResultSelector": { "messages.$": "$.Payload.messages", "count.$": "$.Payload.count" },
+      "ResultPath": "$.prepared",
+      "Next": "SendAlerts"
+    },
+    "SendAlerts": {
+      "Type": "Map",
+      "ItemsPath": "$.prepared.messages",
+      "MaxConcurrency": 10,
+      "ResultPath": null,
+      "Iterator": {
+        "StartAt": "Publish",
+        "States": {
+          "Publish": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::sns:publish",
+            "Parameters": {
+              "TopicArn": "${AlertTopicArn}",
+              "Message.$": "$.text",
+              "MessageAttributes": {
+                "household": { "DataType": "String", "StringValue.$": "$.household" },
+                "kind": { "DataType": "String", "StringValue.$": "$.kind" }
+              }
+            },
+            "Retry": [
+              { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2 }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Next": "MarkNotified"
+    },
+    "MarkNotified": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${StatusFunctionArn}",
+        "Payload": { "incident_id.$": "$.incident_id", "action": "notified", "count.$": "$.prepared.count" }
+      },
+      "ResultPath": null,
+      "End": true
+    },
+    "Expire": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${StatusFunctionArn}",
+        "Payload": { "incident_id.$": "$.incident_id", "action": "expired" }
+      },
+      "ResultPath": null,
+      "End": true
+    }
+  }
+}

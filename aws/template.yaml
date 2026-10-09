@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Upstream (OverFlow) - first-glass photo intake, sewage-breach locator, incident agent
+  and engineer-approved alerts for one ward (default Bhagirathpura, Indore).
+  Deploy: sam build && sam deploy --guided   (run from the repo's aws/ directory)
+
+Parameters:
+  EngineerKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Shared demo password for Approve/Reject (X-Engineer-Key). Empty = no check.
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional email subscribed to the alert topic (SNS SMS in India needs sandbox verification).
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-3-5-sonnet-20241022-v2:0
+  AgentMode:
+    Type: String
+    Default: auto
+    AllowedValues: [auto, bedrock, rules]
+  CorsOrigin:
+    Type: String
+    Default: "*"
+    Description: The Amplify site origin, e.g. https://main.d123.amplifyapp.com
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+Globals:
+  Function:
+    Architectures: [x86_64]
+    MemorySize: 2048
+    Timeout: 60
+    Tracing: Active
+    Environment:
+      Variables:
+        UPSTREAM_READINGS_TABLE: !Ref ReadingsTable
+        UPSTREAM_META_TABLE: !Ref MetaTable
+        UPSTREAM_INCIDENTS_TABLE: !Ref IncidentsTable
+        UPSTREAM_PHOTO_BUCKET: !Sub "${AWS::StackName}-photos-${AWS::AccountId}"
+        UPSTREAM_STATE_MACHINE_ARN: !Sub "arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${AWS::StackName}-IncidentFlow"
+        UPSTREAM_ALERT_TOPIC_ARN: !Ref AlertTopic
+        UPSTREAM_ENGINEER_KEY: !Ref EngineerKey
+        UPSTREAM_AGENT: !Ref AgentMode
+        UPSTREAM_BEDROCK_MODEL: !Ref BedrockModelId
+        UPSTREAM_CORS_ORIGIN: !Ref CorsOrigin
+        UPSTREAM_TZ: Asia/Kolkata
+
+Resources:
+  # ------------------------------------------------------------ storage
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${AWS::StackName}-photos-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-photos
+            Status: Enabled
+            ExpirationInDays: 90
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [PUT]
+            AllowedOrigins: [!Ref CorsOrigin]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+
+  ReadingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: id, AttributeType: S }]
+      KeySchema: [{ AttributeName: id, KeyType: HASH }]
+      StreamSpecification: { StreamViewType: NEW_IMAGE }
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+
+  MetaTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: key, AttributeType: S }]
+      KeySchema: [{ AttributeName: key, KeyType: HASH }]
+
+  IncidentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{ AttributeName: id, AttributeType: S }]
+      KeySchema: [{ AttributeName: id, KeyType: HASH }]
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Upstream water alerts
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ------------------------------------------------------------ API
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: [!Ref CorsOrigin]
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [content-type, x-engineer-key]
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig: { Command: ["upstream.cloud.handlers.api"] }
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ReadingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MetaTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref IncidentsTable }
+        - S3WritePolicy: { BucketName: !Sub "${AWS::StackName}-photos-${AWS::AccountId}" }
+        - Statement:
+            - Effect: Allow
+              Action: [states:SendTaskSuccess, states:SendTaskFailure]
+              Resource: "*"
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/api/{proxy+}", Method: ANY }
+    Metadata: &image
+      Dockerfile: aws/Dockerfile
+      DockerContext: ..
+      DockerTag: upstream
+
+  # ------------------------------------------------------------ pipeline
+  ReaderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig: { Command: ["upstream.cloud.handlers.reader"] }
+      Policies:
+        - S3ReadPolicy: { BucketName: !Sub "${AWS::StackName}-photos-${AWS::AccountId}" }
+        - DynamoDBCrudPolicy: { TableName: !Ref ReadingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MetaTable }
+        - DynamoDBReadPolicy: { TableName: !Ref IncidentsTable }
+      Events:
+        Photo:
+          Type: S3
+          Properties:
+            Bucket: !Ref PhotoBucket
+            Events: s3:ObjectCreated:*
+            Filter: { S3Key: { Rules: [{ Name: prefix, Value: photos/ }, { Name: suffix, Value: .jpg }] } }
+    Metadata: *image
+
+  LocateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig: { Command: ["upstream.cloud.handlers.locate"] }
+      Timeout: 90
+      ReservedConcurrentExecutions: 1   # one scorer at a time: incidents open exactly once
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ReadingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MetaTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref IncidentsTable }
+        - StepFunctionsExecutionPolicy: { StateMachineName: !Sub "${AWS::StackName}-IncidentFlow" }
+      Events:
+        RedReadings:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ReadingsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 25
+            MaximumBatchingWindowInSeconds: 5
+            MaximumRetryAttempts: 3
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"dynamodb": {"NewImage": {"level": {"S": ["red", "amber"]}}}}'
+    Metadata: *image
+
+  AgentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig: { Command: ["upstream.cloud.handlers.agent"] }
+      Timeout: 300
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ReadingsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref MetaTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref IncidentsTable }
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+              Resource: "*"
+    Metadata: *image
+
+  StatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig: { Command: ["upstream.cloud.handlers.incident_status"] }
+      MemorySize: 1024
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref IncidentsTable }
+        - DynamoDBReadPolicy: { TableName: !Ref MetaTable }
+    Metadata: *image
+
+  IncidentFlow:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "${AWS::StackName}-IncidentFlow"
+      DefinitionUri: statemachine/incident.asl.json
+      DefinitionSubstitutions:
+        LocateFunctionArn: !GetAtt LocateFunction.Arn
+        AgentFunctionArn: !GetAtt AgentFunction.Arn
+        StatusFunctionArn: !GetAtt StatusFunction.Arn
+        AlertTopicArn: !Ref AlertTopic
+      Tracing: { Enabled: true }
+      Policies:
+        - LambdaInvokePolicy: { FunctionName: !Ref LocateFunction }
+        - LambdaInvokePolicy: { FunctionName: !Ref AgentFunction }
+        - LambdaInvokePolicy: { FunctionName: !Ref StatusFunction }
+        - SNSPublishMessagePolicy: { TopicName: !GetAtt AlertTopic.TopicName }
+
+Outputs:
+  ApiUrl:
+    Description: Point the dashboard at this (upstream export-site --api-base ...)
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  PhotoBucketName:
+    Value: !Ref PhotoBucket
+  StateMachineArn:
+    Value: !Ref IncidentFlow
+  AlertTopicArn:
+    Value: !Ref AlertTopic

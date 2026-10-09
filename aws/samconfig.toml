@@ -1,0 +1,26 @@
+﻿# Upstream SAM deploy configuration.
+# Run from the aws/ directory:  sam build && sam deploy
+#
+# First deploy:  sam deploy --guided   (fills in the parameter overrides below)
+# After that:    sam deploy             (uses these saved defaults)
+
+version = 0.1
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+stack_name = "upstream"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+image_repositories = []
+
+# Uncomment and fill in after first `sam deploy --guided`:
+# parameter_overrides = [
+#   "EngineerKey=changeme",
+#   "AlertEmail=you@example.com",
+#   "CorsOrigin=*",
+#   "AgentMode=auto"
+# ]
