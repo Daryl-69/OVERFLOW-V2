@@ -41,6 +41,9 @@ def _set_mode(html: str, mode: str) -> str:
 
 
 INTAKE = Path(__file__).resolve().parent / "intake" / "static"
+# The installable app shell (Public photo flow + Worker dashboard, offline queue, demo backend).
+PWA_FILES = ("backend.js", "pwa.js", "sw.js", "manifest.webmanifest")
+PWA_BLOCK = re.compile(r"\s*<!-- PWA -->.*?<!-- /PWA -->", re.S)
 
 
 def export_static(out: Path, scenario_path: Path, evaluation_path: Path | None = None,
@@ -52,6 +55,9 @@ def export_static(out: Path, scenario_path: Path, evaluation_path: Path | None =
     shutil.copytree(STATIC / "vendor", out / "vendor")
     shutil.copy2(STATIC / "app.js", out / "app.js")
     shutil.copy2(STATIC / "style.css", out / "style.css")
+    for f in PWA_FILES:
+        shutil.copy2(STATIC / f, out / f)
+    shutil.copytree(STATIC / "icons", out / "icons")
     (out / "index.html").write_text(_set_mode((STATIC / "index.html").read_text(), "static"))
     data = _scenario(scenario_path, evaluation_path)
     (out / "data" / "scenario.json").write_text(json.dumps(data, separators=(",", ":")))
@@ -71,6 +77,10 @@ def export_artifact(out_file: Path, scenario_path: Path, evaluation_path: Path |
     fonts = re.search(r'<link rel="stylesheet" href="https://fonts\.googleapis\.com[^"]*">', html).group(0)
     body = re.search(r"<body>(.*)</body>", html, re.S).group(1)
     body = _set_mode(body, "artifact")
+    # The artifact is a single page with no service worker or backend: drop the PWA shell.
+    body, n_pwa = PWA_BLOCK.subn("", body)
+    if n_pwa < 1:
+        raise RuntimeError("dashboard template is missing its PWA markers")
     # The live tab needs the server, and the artifact viewer cannot download files: drop both.
     body, n_live = re.subn(r'\s*<!-- LIVE \(app only\) -->\s*<section id="tab-live".*?</section>', "", body, flags=re.S)
     body, n_links = re.subn(r'\s*<p class="links" id="card-links">.*?</p>', "", body, flags=re.S)

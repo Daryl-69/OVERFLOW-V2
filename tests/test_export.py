@@ -47,3 +47,25 @@ def test_cloud_export_points_at_the_api(tmp_path, scenario_file):
     report = (out / "report.html").read_text()
     assert "/api/presign" in report and 'src="config.js"' in report
     assert 'id="tab-incidents"' in (out / "index.html").read_text()
+
+
+def test_static_export_ships_the_pwa(tmp_path, scenario_file):
+    out = export_static(tmp_path / "site", scenario_file)
+    for f in ("backend.js", "pwa.js", "sw.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
+              "icons/icon-maskable-512.png", "icons/icon.svg"):
+        assert (out / f).exists(), f
+    man = json.loads((out / "manifest.webmanifest").read_text())
+    assert man["display"] == "standalone" and man["start_url"].startswith("./")
+    assert {"192x192", "512x512"} <= {i["sizes"] for i in man["icons"]}
+    html = (out / "index.html").read_text()
+    assert 'rel="manifest"' in html and 'id="public-view"' in html
+    # backend.js must run after config.js and before app.js
+    assert html.index('src="config.js"') < html.index('src="backend.js"') < html.index('src="app.js"') < html.index('src="pwa.js"')
+    sw = (out / "sw.js").read_text()
+    assert "SKIP_WAITING" in sw and "'/api/'" in sw
+
+
+def test_artifact_has_no_pwa_shell(tmp_path, scenario_file):
+    page = export_artifact(tmp_path / "a.html", scenario_file).read_text()
+    assert "<!-- PWA -->" not in page and 'id="public-view"' not in page
+    assert 'rel="manifest"' not in page and 'src="backend.js"' not in page and 'src="pwa.js"' not in page

@@ -13,6 +13,8 @@ upstream serve        # dashboard at http://127.0.0.1:8000/dashboard/, household
 
 The dashboard replays an outbreak simulated on Bhagirathpura's real OpenStreetMap street grid, takes live photos of the printed card, and has an **Incidents** desk where the agent's plan waits for an engineer's approval. [BUILD.md](BUILD.md) covers the demo, how the locator works, results, the incident agent, AWS deployment, card calibration, WhatsApp and the API.
 
+**Installable app (PWA).** The dashboard is also an installable, offline-capable app with two sections. **Public** (the start screen): scan the household card's QR code (or type the ID), open the camera, photograph the first glass and send it — photos taken offline wait in an on-device queue and send themselves when the connection returns; English/हिन्दी toggle. **Worker**: the full dashboard (outbreak replay and map, live intake, incident desk, household cards). The backend chip in the top bar switches between **Demo** (an in-browser mock — no server needed, the default on static hosts such as GitHub Pages) and **Server** (this FastAPI app, same origin or any URL; set `UPSTREAM_CORS_ORIGIN` to restrict which sites may call it, default `*`). The files live in `upstream/dashboard/static/` (`pwa.js`, `backend.js`, `sw.js`, `manifest.webmanifest`, `icons/`) and `upstream export-site` ships them; bump `VERSION` in `sw.js` on release so installed phones get the "new version" prompt.
+
 ### Built vs planned
 
 | Piece | Status |

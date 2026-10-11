@@ -1,0 +1,24 @@
+{
+  "name": "Upstream — first-glass water reports",
+  "short_name": "Upstream",
+  "description": "Photograph the first glass of water on your Upstream card. Field workers see outbreaks, the suspected breach and the incident desk.",
+  "id": "./",
+  "start_url": "./#public",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3f6f7",
+  "theme_color": "#0f2a35",
+  "lang": "en",
+  "categories": ["health", "utilities"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Send a water photo", "url": "./#public" },
+    { "name": "Worker dashboard", "url": "./#worker" }
+  ]
+}

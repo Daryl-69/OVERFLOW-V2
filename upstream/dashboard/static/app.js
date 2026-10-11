@@ -22,8 +22,12 @@
   const LEVEL = { green: 'Green', amber: 'Amber', red: 'Red' };
   const CFG = window.UPSTREAM_CONFIG || {};
   const API_BASE = String(CFG.apiBase || '').replace(/\/$/, '');
-  const CLOUD = MODE !== 'app' && !!API_BASE;   // static site pointed at the AWS API
-  const LIVE = MODE === 'app' || CLOUD;          // live intake + incident desk available
+  // Backend kind: "fastapi" (this app's server, same origin or CFG.apiBase), "demo" (the
+  // in-browser mock installed by backend.js), "aws" (API Gateway) or "none" (replay only).
+  const KIND = CFG.kind || (MODE === 'app' ? 'fastapi' : API_BASE ? 'aws' : 'none');
+  const CLOUD = KIND === 'aws' && !!API_BASE;     // static site pointed at the AWS API
+  const LOCAL = KIND === 'fastapi' || KIND === 'demo';  // FastAPI-style endpoints (real or mocked)
+  const LIVE = LOCAL || CLOUD;                   // live intake + incident desk available
   const STATUS = { open: 'Agent working', awaiting_approval: 'Awaiting approval', approved: 'Approved · sending',
     rejected: 'Rejected', notified: 'Alerts sent', closed: 'Closed' };
 
@@ -46,7 +50,8 @@
   async function loadScenario() {
     const inline = document.getElementById('scenario-data');
     if (inline) return JSON.parse(inline.textContent);
-    const res = await fetch(MODE === 'app' ? '/api/scenario' : 'data/scenario.json');
+    const remote = KIND === 'fastapi' && (MODE === 'app' || API_BASE);
+    const res = await fetch(remote ? API_BASE + '/api/scenario' : 'data/scenario.json');
     if (!res.ok) throw new Error(`could not load the scenario (${res.status})`);
     return res.json();
   }
@@ -105,8 +110,21 @@
       m.addTo(LY.homes);
       hhMarker[h.id] = m;
     }
-    map.fitBounds(L.latLngBounds(N), { padding: [24, 24] });
+    fitWard();
+    // The PWA shell may keep the map hidden until the worker view opens.
+    window.addEventListener('upstream:view', (e) => {
+      if (e.detail !== 'worker') return;
+      setTimeout(() => { map.invalidateSize(); if (!fitted) fitWard(); }, 0);
+    });
     syncNetLayers();
+  }
+
+  let fitted = false;
+  function fitWard() {
+    const el = document.getElementById('map');
+    if (!el.offsetWidth) { map.setView([0, 0], 15); return; }
+    map.fitBounds(L.latLngBounds(S.streets.nodes), { padding: [24, 24] });
+    fitted = true;
   }
 
   function setHomeClass(id, level, asked) {
@@ -509,10 +527,12 @@
   }
 
   function initLive() {
-    const url = CLOUD ? (CFG.reportUrl || new URL('report.html', location.href).href) : `${location.origin}/report`;
+    const url = CLOUD ? (CFG.reportUrl || new URL('report.html', location.href).href)
+      : KIND === 'demo' ? new URL('./#public', location.href).href : `${API_BASE || location.origin}/report`;
     $('#phone-url').textContent = url;
     if (CLOUD) { initPhotoForm(); return; }
-    $('#phone-qr').src = `/api/qr.png?data=${encodeURIComponent(url)}`;
+    if (KIND === 'fastapi') $('#phone-qr').src = `${API_BASE}/api/qr.png?data=${encodeURIComponent(url)}`;
+    for (const a of $$('[data-api-href]')) a.href = API_BASE + a.dataset.apiHref;
     $('#btn-supply').addEventListener('click', async () => {
       await api('/api/live/supply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       refreshLive();
@@ -581,7 +601,7 @@
     $('#btn-demo-photo').addEventListener('click', async () => {
       const hh = $('#photo-hh').value.trim() || (S.truth.downstream_households[0] || S.households[0].id);
       result.innerHTML = 'Making a photo of a muddy glass…';
-      const res = await fetch(`/api/demo-photo?household=${encodeURIComponent(hh)}&turbidity=60&chlorine=0&seed=${Date.now() % 1000}`);
+      const res = await fetch(`${API_BASE}/api/demo-photo?household=${encodeURIComponent(hh)}&turbidity=60&chlorine=0&seed=${Date.now() % 1000}`);
       const blob = await res.blob();
       sendPhoto(new File([blob], `demo-${hh}.jpg`, { type: 'image/jpeg' }));
     });
@@ -771,12 +791,12 @@
 
   function initCard() {
     const img = $('#card-img');
-    if (MODE === 'app') {
+    if (KIND === 'fastapi') {
       const update = () => {
         const id = ($('#card-hh').value.trim() || 'H-0001').replace(/[^A-Za-z0-9_-]/g, '');
-        img.src = `/card/${encodeURIComponent(id)}.svg`;
-        $('#card-svg').href = `/card/${encodeURIComponent(id)}.svg`;
-        $('#card-png').href = `/card/${encodeURIComponent(id)}.png?dpi=300`;
+        img.src = `${API_BASE}/card/${encodeURIComponent(id)}.svg`;
+        $('#card-svg').href = `${API_BASE}/card/${encodeURIComponent(id)}.svg`;
+        $('#card-png').href = `${API_BASE}/card/${encodeURIComponent(id)}.png?dpi=300`;
       };
       $('#card-hh').addEventListener('change', update);
       update();
@@ -808,7 +828,8 @@
   // ------------------------------------------------------------------ boot
   async function boot() {
     if (!LIVE) for (const el of $$('[data-app-only]')) el.hidden = true;
-    if (MODE !== 'app') for (const el of $$('[data-local-only]')) el.hidden = true;
+    if (!LOCAL) for (const el of $$('[data-local-only]')) el.hidden = true;
+    if (KIND !== 'fastapi') for (const el of $$('[data-server-only]')) el.hidden = true;
     try {
       S = await loadScenario();
     } catch (e) {

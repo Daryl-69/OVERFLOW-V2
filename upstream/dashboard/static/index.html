@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 40 40%27%3E%3Crect width=%2740%27 height=%2740%27 rx=%278%27 fill=%27%230f2a35%27/%3E%3Cpath d=%27M4 21h7l3-9 4 16 4-12 3 7 3-2h8%27 fill=%27none%27 stroke=%27%23e07cc4%27 stroke-width=%273%27 stroke-linejoin=%27round%27 stroke-linecap=%27round%27/%3E%3C/svg%3E">
 <title>Upstream Breach Locator</title>
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f2a35">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Upstream">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- /PWA -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
@@ -13,7 +21,138 @@
 </head>
 <body>
 <div id="upstream" data-mode="app">
- <div class="screen">
+<!-- PWA -->
+<script>(function(){var h=location.hash.slice(1),w=['worker','replay','live','incidents','card','how'];document.getElementById('upstream').dataset.view=w.indexOf(h)>=0?'worker':(localStorage.getItem('upstream.view')==='worker'&&h!=='public'?'worker':'public');})();</script>
+<header class="appbar">
+  <a class="appbar-brand" href="#public" aria-label="Upstream home">
+    <svg class="brand-mark" viewBox="0 0 40 24" aria-hidden="true"><path d="M1 12h8l3-9 4 18 4-14 3 8 3-3h13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+    <span>Upstream</span>
+  </a>
+  <div class="seg view-switch" role="group" aria-label="Section">
+    <button type="button" data-view-btn="public" data-i18n="nav.public">Public</button>
+    <button type="button" data-view-btn="worker" data-i18n="nav.worker">Worker</button>
+  </div>
+  <div class="appbar-end">
+    <button type="button" class="chip" id="lang-btn" aria-label="Switch language" lang="hi">हिन्दी</button>
+    <button type="button" class="chip" id="backend-btn" aria-haspopup="dialog"><span class="dot" id="backend-dot"></span><span id="backend-label">Demo</span></button>
+  </div>
+</header>
+
+<section class="public" id="public-view" data-view="public" aria-labelledby="pub-title">
+  <div class="pub-inner">
+    <div class="pub-hero">
+      <p class="eyebrow" data-i18n="pub.eyebrow">First-glass report</p>
+      <h1 id="pub-title" data-i18n="pub.title">Is your water safe today?</h1>
+      <p class="pub-lede" data-i18n="pub.lede">When the water comes on, fill one glass, set it on your Upstream card and send a photo. It takes a minute and helps find leaks before people get ill.</p>
+    </div>
+
+    <div class="net-banner" id="net-banner" role="status" hidden>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 7a12 12 0 0 1 16 0M5 10.5a7.5 7.5 0 0 1 10 0M8 14a3 3 0 0 1 4 0M3 3l14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span data-i18n="net.offline">You are offline. Photos will be saved on this phone and sent when you are back online.</span>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <div class="step-n" aria-hidden="true">1</div>
+        <div class="step-body">
+          <h2 data-i18n="s1.title">Your household</h2>
+          <p class="hint" data-i18n="s1.hint">Scan the QR code on your card, or type the ID printed under it.</p>
+          <div class="hh-row">
+            <input id="pub-hh" inputmode="text" autocomplete="off" autocapitalize="characters" placeholder="H-0042" aria-label="Household ID" data-i18n-aria="s1.label">
+            <button type="button" class="btn" id="btn-scan">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 6V2h4M14 2h4v4M18 14v4h-4M6 18H2v-4M6 10h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span data-i18n="s1.scan">Scan QR</span>
+            </button>
+          </div>
+          <p class="field-msg" id="hh-msg" aria-live="polite"></p>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-n" aria-hidden="true">2</div>
+        <div class="step-body">
+          <h2 data-i18n="s2.title">Photograph the first glass</h2>
+          <p class="hint" data-i18n="s2.hint">Put the glass on the circle and the strip in its slot. Keep all four corner squares in the picture.</p>
+          <div class="shot" id="shot">
+            <img id="shot-img" alt="" hidden>
+            <div class="shot-empty" id="shot-empty">
+              <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="12" width="38" height="28" rx="4" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M17 12l3-5h8l3 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="24" cy="26" r="8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
+            </div>
+          </div>
+          <div class="shot-btns">
+            <label class="btn primary big-btn" for="pub-camera">
+              <span data-i18n="s2.camera">Open camera</span>
+            </label>
+            <input type="file" id="pub-camera" accept="image/*" capture="environment" class="vh">
+            <label class="btn" for="pub-file"><span data-i18n="s2.gallery">Choose photo</span></label>
+            <input type="file" id="pub-file" accept="image/*" class="vh">
+          </div>
+        </div>
+      </li>
+      <li class="step">
+        <div class="step-n" aria-hidden="true">3</div>
+        <div class="step-body">
+          <h2 data-i18n="s3.title">How does the water seem?</h2>
+          <div class="answers" role="radiogroup" aria-label="How does the water seem?" data-i18n-aria="s3.title">
+            <button type="button" role="radio" aria-checked="false" data-answer="fine" data-i18n="a.fine">Fine</button>
+            <button type="button" role="radio" aria-checked="false" data-answer="smell" data-i18n="a.smell">Smells bad</button>
+            <button type="button" role="radio" aria-checked="false" data-answer="dirty" data-i18n="a.dirty">Looks dirty</button>
+            <button type="button" role="radio" aria-checked="false" data-answer="ill" data-i18n="a.ill">Someone is ill</button>
+          </div>
+        </div>
+      </li>
+    </ol>
+
+    <button type="button" class="btn primary send" id="btn-send" disabled><span data-i18n="send">Send photo</span></button>
+    <div class="pub-result" id="pub-result" aria-live="polite" hidden></div>
+
+    <section class="queue" id="queue" hidden aria-live="polite">
+      <div>
+        <b id="queue-count"></b>
+        <p class="hint" data-i18n="queue.hint">They will be sent automatically when the connection is back.</p>
+      </div>
+      <button type="button" class="btn" id="btn-flush" data-i18n="queue.retry">Send now</button>
+    </section>
+
+    <p class="pub-note" data-i18n="pub.note">Upstream is an early warning, not a safety certificate. If the water looks or smells wrong, boil it.</p>
+    <p class="pub-note"><button type="button" class="linkish" id="btn-install" hidden data-i18n="install">Install the app on this phone</button></p>
+  </div>
+</section>
+
+<div class="scanner" id="scanner" role="dialog" aria-modal="true" aria-labelledby="scan-title" hidden>
+  <div class="scanner-box">
+    <h2 id="scan-title" data-i18n="scan.title">Point at the QR code on your card</h2>
+    <video id="scan-video" playsinline muted></video>
+    <p class="hint" id="scan-msg" aria-live="polite"></p>
+    <button type="button" class="btn" id="scan-close" data-i18n="close">Close</button>
+  </div>
+</div>
+
+<dialog class="sheet" id="backend-dialog" aria-labelledby="be-title">
+  <form method="dialog" id="backend-form">
+    <h2 id="be-title">Backend</h2>
+    <p class="hint">Where photos and readings go. Demo mode runs entirely in this browser and needs no server.</p>
+    <label class="opt"><input type="radio" name="be-mode" value="demo"> <span><b>Demo</b><br><small>In-browser mock: readings, incidents and alerts are simulated and kept on this device.</small></span></label>
+    <label class="opt"><input type="radio" name="be-mode" value="server"> <span><b>Server</b><br><small>The Upstream FastAPI app (or the AWS API). Leave the URL empty to use this site's own server.</small></span></label>
+    <label for="be-url">Server URL</label>
+    <input id="be-url" type="url" placeholder="https://upstream.example.org" autocomplete="off">
+    <label class="opt-inline"><input type="checkbox" id="be-aws"> AWS API Gateway deployment</label>
+    <p class="field-msg" id="be-msg" aria-live="polite"></p>
+    <div class="row buttons">
+      <button type="button" class="btn" id="be-test">Test connection</button>
+      <button type="button" class="btn" id="be-reset">Use default</button>
+      <span class="grow"></span>
+      <button type="button" class="btn" value="cancel" id="be-cancel">Cancel</button>
+      <button type="submit" class="btn primary" value="save" id="be-save">Save and reload</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="update-toast" role="status" hidden>
+  <span data-i18n="update.text">A new version of Upstream is ready.</span>
+  <button type="button" class="btn primary" id="btn-update" data-i18n="update.btn">Reload</button>
+</div>
+<!-- /PWA -->
+ <div class="screen" data-view="worker">
   <header class="top">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 40 24" aria-hidden="true"><path d="M1 12h8l3-9 4 18 4-14 3 8 3-3h13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
@@ -129,7 +268,7 @@
         </div>
         <div class="banner" id="live-banner" role="status">Send a photo to start.</div>
         <div class="phone">
-          <img data-local-only id="phone-qr" alt="QR code that opens the household photo page on a phone" width="112" height="112">
+          <img data-local-only data-server-only id="phone-qr" alt="QR code that opens the household photo page on a phone" width="112" height="112">
           <div>
             <h2 class="h">On a phone</h2>
             <p>Scan to open the household page, photograph the card with a glass and strip on it, and send.</p>
@@ -172,7 +311,7 @@
         <h2 class="h">Live photos</h2>
         <ol class="feed" id="live-feed"></ol>
         <div id="live-outputs"></div>
-        <p class="links" data-local-only><a href="/api/evidence.csv">Evidence (CSV)</a> · <a href="/api/evidence.json">Evidence (JSON)</a> · <a href="/docs">API</a></p>
+        <p class="links" data-local-only data-server-only><a href="/api/evidence.csv" data-api-href="/api/evidence.csv">Evidence (CSV)</a> · <a href="/api/evidence.json" data-api-href="/api/evidence.json">Evidence (JSON)</a> · <a href="/docs" data-api-href="/docs">API</a></p>
       </section>
 
       <!-- INCIDENTS (app + cloud) -->
@@ -192,12 +331,12 @@
       <section id="tab-card" role="tabpanel" aria-labelledby="tab-btn-card" hidden>
         <h2 class="h">The first-glass card</h2>
         <p>A5, printed at 100%. The four corner squares let the phone undo the angle; the checkerboard under the glass blurs as water gets cloudier; the strip pad sits next to the printed chlorine scale so both are seen under the same light. The QR code carries only the household ID.</p>
-        <div class="card-pick" data-local-only>
+        <div class="card-pick" data-local-only data-server-only>
           <label for="card-hh">Household ID</label>
           <input id="card-hh" value="H-0001" autocomplete="off">
         </div>
         <img id="card-img" class="card-img" src="card.svg" alt="The Upstream first-glass card: corner markers, glass circle over a checkerboard, strip slot, chlorine colour scale, colour patches and a QR code">
-        <p class="links" id="card-links"><a id="card-svg" href="card.svg" download="upstream-card.svg">Download SVG</a><span data-local-only> · <a id="card-png" href="#" download="upstream-card.png">Download PNG (300 dpi)</a></span></p>
+        <p class="links" id="card-links"><a id="card-svg" href="card.svg" download="upstream-card.svg">Download SVG</a><span data-local-only data-server-only> · <a id="card-png" href="#" download="upstream-card.png">Download PNG (300 dpi)</a></span></p>
         <h3 class="h3">Strip packs</h3>
         <table class="tbl">
           <thead><tr><th>Pack</th><th>Who gets it</th><th>How it is used</th></tr></thead>
@@ -212,7 +351,7 @@
   </main>
  </div>
 
-  <section class="explain" id="how">
+  <section class="explain" id="how" data-view="worker">
     <div class="explain-inner">
       <h2>How Upstream finds the crack</h2>
       <p class="lede">In cities where water runs an hour or two a day, sewage seeps into emptied pipes between supplies. When the water comes back, the front picks up that dirty slug and carries it downstream. Homes just downstream get dirty first water; homes farther on get it more diluted; homes upstream never see it. Seismologists locate an earthquake from when its waves reach each station. Upstream does the same with first glasses of water.</p>
@@ -245,14 +384,16 @@
     </div>
   </section>
 
-  <footer class="foot">
+  <footer class="foot" data-view="worker">
     <span id="attribution"></span>
     <span>Upstream is an early-warning and leak-finding tool, not a safety certificate. Red alerts still go to lab confirmation.</span>
   </footer>
   <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 </div>
 <script src="config.js" onerror="void 0"></script>
+<!-- PWA --><script src="backend.js"></script><!-- /PWA -->
 <script src="vendor/leaflet/leaflet.js"></script>
 <script src="app.js"></script>
+<!-- PWA --><script src="pwa.js"></script><!-- /PWA -->
 </body>
 </html>

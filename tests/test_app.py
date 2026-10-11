@@ -60,6 +60,19 @@ def test_pages_and_static(client):
     assert client.get("/dashboard/app.js").status_code == 200
     assert client.get("/dashboard/vendor/leaflet/leaflet.js").status_code == 200
     assert client.get("/dashboard/card.svg").headers["content-type"].startswith("image/svg")
+    man = client.get("/dashboard/manifest.webmanifest")
+    assert man.status_code == 200 and man.headers["content-type"].startswith("application/manifest+json")
+    assert man.json()["short_name"] == "Upstream"
+    sw = client.get("/dashboard/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.headers["content-type"]
+    for f in ("backend.js", "pwa.js", "icons/icon-192.png"):
+        assert client.get(f"/dashboard/{f}").status_code == 200, f
+    assert 'id="public-view"' in page.text and 'data-view-btn="worker"' in page.text
+
+
+def test_cors_for_a_separately_hosted_pwa(client):
+    r = client.get("/api/health", headers={"Origin": "https://daryl-69.github.io"})
+    assert r.headers.get("access-control-allow-origin") in ("*", "https://daryl-69.github.io")
     assert "Upstream first glass" in client.get("/report").text
     sc = client.get("/api/scenario").json()
     assert sc["version"] == 1 and sc["frames"]

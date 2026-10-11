@@ -21,6 +21,7 @@ import csv
 import io
 import json
 import logging
+import mimetypes
 import os
 import re
 from pathlib import Path
@@ -28,6 +29,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -45,6 +47,7 @@ from .workflow import Workflow, WorkflowError, workflow_from_env
 
 log = logging.getLogger("upstream")
 
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 DASHBOARD_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "static"
 INTAKE_DIR = Path(__file__).resolve().parent / "static"
 HOUSEHOLD_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
@@ -113,6 +116,12 @@ def create_app(var_dir: str | Path | None = None, scenario_path: str | Path | No
     app = FastAPI(title="Upstream", description="Seismology for sewage — first-glass intake and breach locator.",
                   version="0.1.0")
     app.add_middleware(GZipMiddleware, minimum_size=2048)
+    # The PWA can be hosted elsewhere (GitHub Pages) and pointed at this server from its
+    # backend dialog. UPSTREAM_CORS_ORIGIN: comma-separated origins, "*" (default) or "" to disable.
+    origins = [o.strip() for o in os.environ.get("UPSTREAM_CORS_ORIGIN", "*").split(",") if o.strip()]
+    if origins:
+        app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
+                           allow_headers=["Content-Type", "X-Engineer-Key"])
     app.state.live = live
     app.state.scenario_path = data_path
     app.state.bot = bot
